@@ -734,21 +734,21 @@ void OnPollProcessEvent( stTimeoutItem_t * ap )
 }
 
 void OnPollPreparePfn( stTimeoutItem_t * ap,struct epoll_event &e,stTimeoutItemLink_t *active )
-{
+{//这个函数看上去像一种准备。
 	stPollItem_t *lp = (stPollItem_t *)ap;
 	lp->pSelf->revents = EpollEvent2Poll( e.events );
-
+//pSelf是struct pollfd，revents是实际发生的事件（在poll调用里是由内核填充），
 
 	stPoll_t *pPoll = lp->pPoll;
 	pPoll->iRaiseCnt++;
 
 	if( !pPoll->iAllEventDetach )
 	{
-		pPoll->iAllEventDetach = 1;
+		pPoll->iAllEventDetach = 1;//不可重入
 
-		RemoveFromLink<stTimeoutItem_t,stTimeoutItemLink_t>( pPoll );
+		RemoveFromLink<stTimeoutItem_t,stTimeoutItemLink_t>( pPoll );//将本事件从链表中摘下。
 
-		AddTail( active,pPoll );
+		AddTail( active,pPoll );//摘下后放入active链表中。
 
 	}
 }
@@ -888,39 +888,43 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	{
 		timeout = INT_MAX;
 	}
-	int epfd = ctx->iEpollFd;
+	int epfd = ctx->iEpollFd;	
 	stCoRoutine_t* self = co_self();
 
 	//1.struct change
-	stPoll_t& arg = *((stPoll_t*)malloc(sizeof(stPoll_t)));
+	stPoll_t& arg = *((stPoll_t*)malloc(sizeof(stPoll_t)));	//stPoll_t结构体
+	//以下代码为stPoll_t结构体初始化。这里代码作者使用的是引用&（感觉这个源码风格不统一可能是多人协作）
 	memset( &arg,0,sizeof(arg) );
 
-	arg.iEpollFd = epfd;
-	arg.fds = (pollfd*)calloc(nfds, sizeof(pollfd));
+	arg.iEpollFd = epfd;//来自定时器
+	arg.fds = (pollfd*)calloc(nfds, sizeof(pollfd));//struct pollfd 申请了nfds个
 	arg.nfds = nfds;
 
-	stPollItem_t arr[2];
-	if( nfds < sizeof(arr) / sizeof(arr[0]) && !self->cIsShareStack)
-	{
-		arg.pPollItems = arr;
+	stPollItem_t arr[2]; //临时内存池，不一定会使用到它，（取栈内存比向os申请快得多）。
+	if( nfds < sizeof(arr) / sizeof(arr[0]) && !self->cIsShareStack) 
+	{//第一个条件判断了一下数组开的是不是够大，第二个条件检查share Stack的许可。
+		//（这里为什么要检查share shack许可啊？难道是因为arr无法持久？）
+		arg.pPollItems = arr;//若够大且允许，就使用数组。
 	}	
-	else
+	else//否则还是老老实实地跟os申请
 	{
 		arg.pPollItems = (stPollItem_t*)malloc( nfds * sizeof( stPollItem_t ) );
-	}
-	memset( arg.pPollItems,0,nfds * sizeof(stPollItem_t) );
+	}//pPollItems最终结果是指向了恰好是nfds*sizeof(stPollItem_t)大小的连续内存
+	memset( arg.pPollItems,0,nfds * sizeof(stPollItem_t) );//内存清零  还是初始化
 
 	arg.pfnProcess = OnPollProcessEvent;
+	//pfnProcess是定时器成员，OnPollProcessEvent函数指针，此函数作用是将ap中pArg保存的stCoRoutine_t*取出，赋予执行权。（回到本函数）
 	arg.pArg = GetCurrCo( co_get_curr_thread_env() );
+	//上面两句使eventloop可以很容易定位并回到co_poll_inner继续执行。
 	
 	
 	//2. add epoll
-	for(nfds_t i=0;i<nfds;i++)
+	for(nfds_t i=0;i<nfds;i++)//epoll的处理，暂时不看了。
 	{
-		arg.pPollItems[i].pSelf = arg.fds + i;
+		arg.pPollItems[i].pSelf = arg.fds + i;//取第i个struct pollfd，就是pSelf
 		arg.pPollItems[i].pPoll = &arg;
 
-		arg.pPollItems[i].pfnPrepare = OnPollPreparePfn;
+		arg.pPollItems[i].pfnPrepare = OnPollPreparePfn;//准备函数。
 		struct epoll_event &ev = arg.pPollItems[i].stEvent;
 
 		if( fds[i].fd > -1 )
@@ -947,10 +951,10 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	//3.add timeout
 
 	unsigned long long now = GetTickMS();
-	arg.ullExpireTime = now + timeout;
-	int ret = AddTimeout( ctx->pTimeout,&arg,now );
+	arg.ullExpireTime = now + timeout;//设置超时时间点。
+	int ret = AddTimeout( ctx->pTimeout,&arg,now );//往时间轮中加计时器
 	int iRaiseCnt = 0;
-	if( ret != 0 )
+	if( ret != 0 ) //错误处理一下。
 	{
 		co_log_err("CO_ERR: AddTimeout ret %d now %lld timeout %d arg.ullExpireTime %lld",
 				ret,now,timeout,arg.ullExpireTime);
@@ -961,10 +965,11 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
     else
 	{
 		co_yield_env( co_get_curr_thread_env() );
+	    //交出执行权，这里会等待eventloop被调用，由eventloop将co_poll事件处理完毕会重新将执行权归还本函数。
 		iRaiseCnt = arg.iRaiseCnt;
 	}
 
-    {
+    {//收尾工作。
 		//clear epoll status and memory
 		RemoveFromLink<stTimeoutItem_t,stTimeoutItemLink_t>( &arg );
 		for(nfds_t i = 0;i < nfds;i++)
@@ -973,7 +978,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 			if( fd > -1 )
 			{
 				co_epoll_ctl( epfd,EPOLL_CTL_DEL,fd,&arg.pPollItems[i].stEvent );
-			}
+			}//del
 			fds[i].revents = arg.fds[i].revents;
 		}
 
