@@ -62,13 +62,13 @@ struct stCoRoutine_t
 	void *pvEnv;
 
 	//char sRunStack[ 1024 * 128 ];
-	stStackMem_t* stack_mem;
+	stStackMem_t* stack_mem;	//bp保存在这儿
 
 
 	//save satck buffer while confilct on same stack_buffer;
-	char* stack_sp; 
-	unsigned int save_size;
-	char* save_buffer;
+	char* stack_sp; //栈顶指针
+	unsigned int save_size;//栈内有效数据大小（len）
+	char* save_buffer;//指向用来临时存放栈内有效数据的地方的指针（share stack策略）
 
 	stCoSpec_t aSpec[1024];
 
