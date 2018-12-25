@@ -919,7 +919,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	
 	
 	//2. add epoll
-	for(nfds_t i=0;i<nfds;i++)//epoll的处理，暂时不看了。
+	for(nfds_t i=0;i<nfds;i++)//epoll的处理
 	{
 		arg.pPollItems[i].pSelf = arg.fds + i;//取第i个struct pollfd，就是pSelf
 		arg.pPollItems[i].pPoll = &arg;
@@ -930,7 +930,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 		if( fds[i].fd > -1 )
 		{
 			ev.data.ptr = arg.pPollItems + i;
-			ev.events = PollEvent2Epoll( fds[i].events );
+			ev.events = PollEvent2Epoll( fds[i].events );//co_poll用的事件类型转为epoll用的类型。
 
 			int ret = co_epoll_ctl( epfd,EPOLL_CTL_ADD, fds[i].fd, &ev );
 			if (ret < 0 && errno == EPERM && nfds == 1 && pollfunc != NULL)
