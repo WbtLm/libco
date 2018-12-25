@@ -579,7 +579,7 @@ void co_yield( stCoRoutine_t *co )
 	co_yield_env( co->env );
 }
 
-void save_stack_buffer(stCoRoutine_t* occupy_co)
+void save_stack_buffer(stCoRoutine_t* occupy_co)//将occupy_co的有效栈内存保存到save_buffer中。
 {
 	///copy out
 	stStackMem_t* stack_mem = occupy_co->stack_mem;
@@ -602,32 +602,36 @@ void co_swap(stCoRoutine_t* curr, stCoRoutine_t* pending_co)
 
 	//get curr stack sp
 	char c;
-	curr->stack_sp= &c;
+	curr->stack_sp= &c;	//取当前栈顶
 
-	if (!pending_co->cIsShareStack)
-	{
-		env->pending_co = NULL;
-		env->occupy_co = NULL;
+	if (!pending_co->cIsShareStack) //若没有使用share stack，就不存在抢地盘的问题。
+	{	//见官方注释：for copy stack log lastco and nextco
+		env->pending_co = NULL;	 //可能被人家抢了地盘（栈）的协程，没有occupy_co自然就没有被抢的协程
+		env->occupy_co = NULL;   //当前占用栈的协程
 	}
-	else 
+	else //occupy_co可以理解为强盗，他抢了本来属于pending_co的协程控制字内的栈空间
 	{
-		env->pending_co = pending_co;
+		env->pending_co = pending_co;//设置好pending_co，下文中会将env->pending_co的栈还原
 		//get last occupy co on the same stack mem
-		stCoRoutine_t* occupy_co = pending_co->stack_mem->occupy_co;
+		stCoRoutine_t* occupy_co = pending_co->stack_mem->occupy_co;//备份一下之前是谁占用了自己的栈空间
+		//（occupy_co初始化是NULL），第一次执行协程后这里就会把它变为自己。初始化后第一次拿到执行权栈不为空之后，它不再会是NULL。
 		//set pending co to occupy thest stack mem;
-		pending_co->stack_mem->occupy_co = pending_co;
+		pending_co->stack_mem->occupy_co = pending_co; //自己的栈空间的所有者（occupier）是自己
 
-		env->occupy_co = occupy_co;
-		if (occupy_co && occupy_co != pending_co)
+		env->occupy_co = occupy_co;	//记录下当前环境中，是谁抢了人家的地盘（可能是自己抢了自己的地盘233）
+		
+		//当占用了pending_co的强盗occupy_co不是自己的话，强盗就得老老实实地收拾自己的栈（保存起来）走人。
+		if (occupy_co && occupy_co != pending_co)//有occupy_co并且不是自己
 		{
-			save_stack_buffer(occupy_co);
+			save_stack_buffer(occupy_co);//将occupy_co的栈中有效数据保存到occupy->save_buffer中
+			//pending_co把occupy_co撵走之后就可以还原自己的栈空间了。
 		}
 	}
-
+	
 	//swap context
-	coctx_swap(&(curr->ctx),&(pending_co->ctx) );
-
-	//stack buffer may be overwrite, so get again;
+	coctx_swap(&(curr->ctx),&(pending_co->ctx));
+	
+	//stack buffer may be overwrite, so get again;		//why?难道可以多线程之间串？
 	stCoRoutineEnv_t* curr_env = co_get_curr_thread_env();
 	stCoRoutine_t* update_occupy_co =  curr_env->occupy_co;
 	stCoRoutine_t* update_pending_co = curr_env->pending_co;
@@ -638,7 +642,7 @@ void co_swap(stCoRoutine_t* curr, stCoRoutine_t* pending_co)
 		if (update_pending_co->save_buffer && update_pending_co->save_size > 0)
 		{
 			memcpy(update_pending_co->stack_sp, update_pending_co->save_buffer, update_pending_co->save_size);
-		}
+		}//还原pending_co的栈
 	}
 }
 
