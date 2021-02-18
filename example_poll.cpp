@@ -42,9 +42,9 @@ using namespace std;
 
 struct task_t
 {
-	stCoRoutine_t *co;
-	int fd;
-	struct sockaddr_in addr;
+	stCoRoutine_t *co;//指向协程类型的指针
+	int fd;//协程号
+	struct sockaddr_in addr;//UDP或TCP协议类型
 };
 
 static int SetNonBlock(int iSock)
@@ -59,7 +59,7 @@ static int SetNonBlock(int iSock)
 }
 
 
-
+//IP+端口+地址
 static void SetAddr(const char *pszIP,const unsigned short shPort,struct sockaddr_in &addr)
 {
 	bzero(&addr,sizeof(addr));
@@ -114,7 +114,7 @@ static void *poll_routine( void *arg )
 	for(size_t i=0;i<v.size();i++)
 	{
 		int fd = CreateTcpSocket();
-		SetNonBlock( fd );
+		SetNonBlock( fd );//不阻塞
 		v[i].fd = fd;
 
 		int ret = connect(fd,(struct sockaddr*)&v[i].addr,sizeof( v[i].addr )); 
@@ -168,7 +168,7 @@ static void *poll_routine( void *arg )
 		}
 	}
 	for(size_t i=0;i<v.size();i++)
-	{
+	{	
 		close( v[i].fd );
 		v[i].fd = -1;
 	}
@@ -177,14 +177,14 @@ static void *poll_routine( void *arg )
 			co_self(),v.size(),setRaiseFds.size() );
 	return 0;
 }
-int main(int argc,char *argv[])
-{
-	vector<task_t> v;
+//带参数的main函数
+int main(int argc,char *argv[]){
+	vector<task_t> v;  //可变长数组  向量
 	for(int i=1;i<argc;i+=2)
 	{
 		task_t task = { 0 };
 		SetAddr( argv[i],atoi(argv[i+1]),task.addr );
-		v.push_back( task );
+		v.push_back( task );//将IP+端口推到数组v
 	}
 
 //------------------------------------------------------------------------------------
@@ -195,7 +195,7 @@ int main(int argc,char *argv[])
 
 	for(int i=0;i<10;i++)
 	{
-		stCoRoutine_t *co = 0;
+		stCoRoutine_t *co = 0;//null=0
 		vector<task_t> *v2 = new vector<task_t>();
 		*v2 = v;
 		co_create( &co,NULL,poll_routine,v2 );

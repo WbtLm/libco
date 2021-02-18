@@ -25,6 +25,8 @@ struct coctx_param_t
 	const void *s1;
 	const void *s2;
 };
+
+//用于保存协程执行上下文的 coctx_t 结构
 struct coctx_t
 {
 #if defined(__i386__)

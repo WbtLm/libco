@@ -50,6 +50,12 @@ struct stCoEpoll_t;
 
 struct stCoRoutineEnv_t
 {
+	/*pCallStack是用来保留程序运行过程中局部变量以及函数调用关系的
+	每当启动（resume）一个协程时，就将它的协程控制块 stCoRoutine_t 结构指针保存在 pCallStack 的“栈顶”，
+	然后“栈指针”iCallStackSize 加 1，最后切换 context 到待启动协程运行。当协程要让出（yield）CPU 时，
+	就将它的 stCoRoutine_t 从 pCallStack 弹出，“栈指针”iCallStackSize 减 1，
+	然后切换 context 到当前栈顶的协程（原来被挂起的调用者）恢复执行。
+	*/
 	stCoRoutine_t *pCallStack[ 128 ];
 	int iCallStackSize;
 	stCoEpoll_t *pEpoll;
@@ -309,18 +315,18 @@ static stStackMem_t* co_get_stackmem(stShareStack_t* share_stack)
 // ----------------------------------------------------------------------------
 struct stTimeoutItemLink_t;
 struct stTimeoutItem_t;
-struct stCoEpoll_t
+struct stCoEpoll_t//该结构体重维护了事件循环需要的数据
 {
-	int iEpollFd;
-	static const int _EPOLL_SIZE = 1024 * 10;
+	int iEpollFd;//epoll实例的文件描述符
+	static const int _EPOLL_SIZE = 1024 * 10;//作为 epoll_wait() 系统调用的第三个参数，即⼀次 epoll_wait 最多返回的就绪事件个数。
 
-	struct stTimeout_t *pTimeout;
+	struct stTimeout_t *pTimeout;//类型为 stTimeout_t 的结构体指针。该结构实际上是⼀个时间轮（Timingwheel）定时器
 
-	struct stTimeoutItemLink_t *pstTimeoutList;
+	struct stTimeoutItemLink_t *pstTimeoutList;//指向 stTimeoutItemLink_t 类型的结构体指针。该指针实际上是⼀个链表头。链表用于临时存放超时事件的 item。
 
-	struct stTimeoutItemLink_t *pstActiveList;
+	struct stTimeoutItemLink_t *pstActiveList;//指向 stTimeoutItemLink_t 类型的结构体指针。也是指向⼀个链表。该链表用于存放 epoll_wait 得到的就绪事件和定时器超时事件。
 
-	co_epoll_res *result; 
+	co_epoll_res *result; //对 epoll_wait()第⼆个参数的封装，即⼀次 epoll_wait 得到的结果集
 
 };
 typedef void (*OnPreparePfn_t)( stTimeoutItem_t *,struct epoll_event &ev, stTimeoutItemLink_t *active );
@@ -517,7 +523,13 @@ struct stCoRoutine_t *co_create_env( stCoRoutineEnv_t * env, const stCoRoutineAt
 
 	return lp;
 }
-
+/*
+功能：创建协程
+参数：	ppco: stCoRoutine_t** 类型的指针。输出参数，co_create 内部会为新协程分配⼀个“协程控制块”，co 将指向这个分配的协程控制块。
+		attr: stCoRoutineAttr_t 类型的指针。输⼊参数，用于指定要创建协程的属性，可为 NULL。实际上仅有两个属性：栈⼤小、指向共享栈的指针（使用共享栈模式）。
+		void* (routine)(void):void* (*)(void ) 类型的函数指针，指向协程的任务函数，即启动这个协程后要完成什么样的任务。routine 类型为函数指针。
+		arg: void 类型指针，传递给任务函数的参数，类似于 pthread 传递给线程的参数。调用 co_create 将协程创建出来后，这时候它还没有启动，也即是说我们传递的routine 函数还没有被调用。
+*/
 int co_create( stCoRoutine_t **ppco,const stCoRoutineAttr_t *attr,pfn_co_routine_t pfn,void *arg )
 {
 	if( !co_get_curr_thread_env() ) 
@@ -528,6 +540,9 @@ int co_create( stCoRoutine_t **ppco,const stCoRoutineAttr_t *attr,pfn_co_routine
 	*ppco = co;
 	return 0;
 }
+/*
+任务结束后要记得调用co_free()或 co_release()销毁这个临时性的协程，否则将引起内存泄漏。
+*/
 void co_free( stCoRoutine_t *co )
 {
     if (!co->cIsShareStack) 
@@ -543,21 +558,36 @@ void co_release( stCoRoutine_t *co )
 }
 
 void co_swap(stCoRoutine_t* curr, stCoRoutine_t* pending_co);
-
+/*
+功能：在调用 co_create 创建协程返回成功后，调用 co_resume 函数启动协程,可以通过 resume 将 CPU 交给任意协程
+参数：启动 co 指针指向的协程
+*/
 void co_resume( stCoRoutine_t *co )
 {
 	stCoRoutineEnv_t *env = co->env;
-	stCoRoutine_t *lpCurrRoutine = env->pCallStack[ env->iCallStackSize - 1 ];
+	stCoRoutine_t *lpCurrRoutine = env->pCallStack[ env->iCallStackSize - 1 ];//取当前协程控制块指针
+	
+	/*if分支：当且仅当协程是第一次启动时才会执行到。
+	首次启动协程过程有点特殊，需要调用 coctx_make() 为新协程准备 context（为了让 co_swap() 内能跳转到协程的任务函数）
+	并将 cStart 标志变量置 1。*/
 	if( !co->cStart )
 	{
 		coctx_make( &co->ctx,(coctx_pfn_t)CoRoutineFunc,co,0 );
 		co->cStart = 1;
 	}
-	env->pCallStack[ env->iCallStackSize++ ] = co;
-	co_swap( lpCurrRoutine, co );
-
-
+	env->pCallStack[ env->iCallStackSize++ ] = co;//将待启动的协程 co 压入 pCallStack 栈
+	co_swap(lpCurrRoutine, co);					  //调用 co_swap() 切换到 co 指向的新协程上去执行
+	/*
+	co_swap() 不会就此返回，而是要这次 resume 的 co 协程主动yield 让出 CPU 时才会返回到 co_resume() 中来。
+	值得指出的是，这里讲 co_swap() 不会就此返回，不是说这个函数就阻塞在这里等待 co 这个协程 yield 让出 CPU。
+	实际上
+	后面我们将会看到，co_swap() 内部已经切换了 CPU 执行上下文，奔着 co 协程的代码路径去执行了
+	*/
 }
+/*
+功能：协程的挂起, yield 给当前协程的调用者
+参数：当前协程的调用者，调用者协程保存在 stCoRoutineEnv_t的 pCallStack 中，因此你只能 yield 给“env”
+*/
 void co_yield_env( stCoRoutineEnv_t *env )
 {
 	
@@ -757,7 +787,16 @@ void OnPollPreparePfn( stTimeoutItem_t * ap,struct epoll_event &e,stTimeoutItemL
 	}
 }
 
+/*
+功能：主协程事件循环
+首先分配co_epoll_res结构用于epoll_wait。
+根据epoll_wait返回的事件，获取对应stTimeoutItem_t对象
+若定义了pfnPrepare函数，调用，否则，将item加入active链表之中。
+接下来，获取当前时间，转动时间轮盘，获取所有超时的item，将他们加入timeout链表
+设置超时flag为true。将timeout链表中所有元素加入active链表之中。
+遍历active链表，没有超时的加入时间轮，调用每个结点的pfnProcess函数，唤醒对应协程。
 
+*/
 void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 {
 	if( !ctx->result )
@@ -769,30 +808,31 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 
 	for(;;)
 	{
-		int ret = co_epoll_wait( ctx->iEpollFd,result,stCoEpoll_t::_EPOLL_SIZE, 1 );
+		int ret = co_epoll_wait( ctx->iEpollFd,result,stCoEpoll_t::_EPOLL_SIZE, 1 );//调用 epoll_wait() 等待 I/O 就绪事件，为了配合时间轮⼯作，这里的 timeout设置为 1 毫秒。
 
-		stTimeoutItemLink_t *active = (ctx->pstActiveList);
-		stTimeoutItemLink_t *timeout = (ctx->pstTimeoutList);
+		stTimeoutItemLink_t *active = (ctx->pstActiveList);//active 指针指向当前执⾏环境的 pstActiveList 队列，注意这里面可能已经有“活跃”的待处理事件
+		stTimeoutItemLink_t *timeout = (ctx->pstTimeoutList);//timeout 指针指向 pstTimeoutList 列表，其实这个 timeout 全是个临时性的链表
 
 		memset( timeout,0,sizeof(stTimeoutItemLink_t) );
-
+		
+		//处理就绪的⽂件描述符
 		for(int i=0;i<ret;i++)
 		{
 			stTimeoutItem_t *item = (stTimeoutItem_t*)result->events[i].data.ptr;
 			if( item->pfnPrepare )
 			{
-				item->pfnPrepare( item,result->events[i],active );
+				item->pfnPrepare( item,result->events[i],active );//如果用户设置了预处理回调，则调用pfnPrepare 做预处理,实际上，pfnPrepare() 预处理函数内部也会将就绪 item 加⼊ active 队列
 			}
 			else
 			{
-				AddTail( active,item );
+				AddTail( active,item );//否则直接将就绪事件 item 加⼊ active 队列
 			}
 		}
 
-
+		//从时间轮上取出已超时的事件，放到 timeout 队列
 		unsigned long long now = GetTickMS();
 		TakeAllTimeout( ctx->pTimeout,now,timeout );
-
+		//遍历 active 队列，调用⼯作协程设置的 pfnProcess() 回调函数 resume挂起的⼯作协程，处理对应的 I/O 或超时事件。这就是主协程的事件循环工作过程
 		stTimeoutItem_t *lp = timeout->head;
 		while( lp )
 		{
@@ -882,6 +922,12 @@ stCoRoutine_t *GetCurrThreadCo( )
 
 
 typedef int (*poll_pfn_t)(struct pollfd fds[], nfds_t nfds, int timeout);
+/*
+co_poll_inner函数主要有三个作用：
+1. 将poll的相关事件转换为epoll相关事件，并注册到当前线程的epoll中。
+2. 注册超时事件，到当前的epoll中
+3. 调用co_yield_ct, 让出该协程。
+*/
 int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc)
 {
     if (timeout == 0)
