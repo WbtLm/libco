@@ -317,14 +317,14 @@ struct stTimeoutItemLink_t;
 struct stTimeoutItem_t;
 struct stCoEpoll_t//该结构体重维护了事件循环需要的数据
 {
-	int iEpollFd;//epoll实例的文件描述符
+	int iEpollFd;//epoll或者kqueue的fd
 	static const int _EPOLL_SIZE = 1024 * 10;//作为 epoll_wait() 系统调用的第三个参数，即⼀次 epoll_wait 最多返回的就绪事件个数。
 
-	struct stTimeout_t *pTimeout;//类型为 stTimeout_t 的结构体指针。该结构实际上是⼀个时间轮（Timingwheel）定时器
+	struct stTimeout_t *pTimeout;//类型为 stTimeout_t 的结构体指针。该结构实际上是⼀个时间轮（Timingwheel）定时器,记录了所有的定时事件
 
-	struct stTimeoutItemLink_t *pstTimeoutList;//指向 stTimeoutItemLink_t 类型的结构体指针。该指针实际上是⼀个链表头。链表用于临时存放超时事件的 item。
+	struct stTimeoutItemLink_t *pstTimeoutList;//指向 stTimeoutItemLink_t 类型的结构体指针。该指针实际上是⼀个链表头。链表用于临时存放超时事件的 item。本轮超时的事件
 
-	struct stTimeoutItemLink_t *pstActiveList;//指向 stTimeoutItemLink_t 类型的结构体指针。也是指向⼀个链表。该链表用于存放 epoll_wait 得到的就绪事件和定时器超时事件。
+	struct stTimeoutItemLink_t *pstActiveList;//指向 stTimeoutItemLink_t 类型的结构体指针。也是指向⼀个链表。该链表用于存放 epoll_wait 得到的就绪事件和定时器超时事件。本轮触发的事件
 
 	co_epoll_res *result; //对 epoll_wait()第⼆个参数的封装，即⼀次 epoll_wait 得到的结果集
 
