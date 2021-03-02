@@ -48,22 +48,24 @@ using namespace std;
 stCoRoutine_t *GetCurrCo( stCoRoutineEnv_t *env );
 struct stCoEpoll_t;
 
-/*
+// stCoRoutineEnv_t结构一个线程只有一个
+//线程可以通过该stCoRoutineEnv_t实例了解现在有哪些协程，哪个协程正在运行，以及下一个运行的协程是哪个
+struct stCoRoutineEnv_t
+{
+	/*
 	pCallStack是用来保留程序运行过程中局部变量以及函数调用关系的
 	每当启动（resume）一个协程时，就将它的协程控制块 stCoRoutine_t 结构指针保存在 pCallStack 的“栈顶”，
 	然后“栈指针”iCallStackSize 加 1，最后切换 context 到待启动协程运行。当协程要让出（yield）CPU 时，
 	就将它的 stCoRoutine_t 从 pCallStack 弹出，“栈指针”iCallStackSize 减 1，
 	然后切换 context 到当前栈顶的协程（原来被挂起的调用者）恢复执行。
 	libco只能支持128层协程的嵌套调用
-*/
-// stCoRoutineEnv_t结构一个线程只有一个
-//线程可以通过该stCoRoutineEnv_t实例了解现在有哪些协程，哪个协程正在运行，以及下一个运行的协程是哪个
-struct stCoRoutineEnv_t
-{
-	// 如果将协程看成一种特殊的函数，那么这个 pCallStack 就时保存这些函数的调用链的栈。
-	// 非对称协程最大特点就是协程间存在明确的调用关系；甚至在有些文献中，启动协程被称作 call，
-	// 挂起协程叫 return。非对称协程机制下的被调协程只能返回到调用者协程，这种调用关系不能乱，
-	// 因此必须将调用链保存下来
+	*/
+	/*
+	如果将协程看成一种特殊的函数，那么这个 pCallStack 就时保存这些函数的调用链的栈。
+	非对称协程最大特点就是协程间存在明确的调用关系；甚至在有些文献中，启动协程被称作 call，
+	挂起协程叫 return。非对称协程机制下的被调协程只能返回到调用者协程，这种调用关系不能乱，
+	因此必须将调用链保存下来
+	*/
 	stCoRoutine_t *pCallStack[ 128 ];// 保存当前栈中的协程
 	int iCallStackSize;// 表示当前在运行的协程的下一个位置，即cur_co_runtine_index + 1
 	stCoEpoll_t *pEpoll;// epoll的一个封装结构,用于协程时间片切换
@@ -325,7 +327,7 @@ static stStackMem_t* co_get_stackmem(stShareStack_t* share_stack)
 struct stTimeoutItemLink_t;
 struct stTimeoutItem_t;
 
-//该结构体重维护了事件循环需要的数据
+//该结构体重维护了事件循环需要的数据,stCoEpoll_t中主要保存了epoll监听的fd，以及注册在其中的超时事件。
 struct stCoEpoll_t
 {
 	int iEpollFd;//epoll或者kqueue的fd
