@@ -25,50 +25,69 @@ coctx_t 结构，就是用于保存各寄存器值（context）的。
 该函数调用之前还处于第一个协程的环境，该函数返回后，则当前运行的协程就已经完全是第二个协程了。
 这个函数要直接操作寄存器，所以要使用汇编编程。此处用 AT&T 汇编指令，即如果指令有两个操作数，那么第一个是源操作数，第二个即为目的操作数。
 */
+
 .globl coctx_swap
 #if !defined( __APPLE__ ) && !defined( __FreeBSD__ )
 .type  coctx_swap, @function
 #endif
 coctx_swap:
+
 /*用 4(%esp) 便可以取到第一个参数（当前协程 context 指针）
 8(%esp)可以取到第二个参数（待切入运行协程的 context 指针）
 当前栈顶的内容，(%esp) 则保存了 coctx_swap 的返回地址*/
+
+//leal是将算术值赋值给目标寄存器，movl 4(%esp)则是将esp+4算出来的值作为地址，取该地址的值赋值给目标寄存器。
+
+// 32 bit
+// | regs[0]: ret |
+// | regs[1]: ebx |
+// | regs[2]: ecx |
+// | regs[3]: edx |
+// | regs[4]: edi |
+// | regs[5]: esi |
+// | regs[6]: ebp |
+// | regs[7]: eax |  = esp
 #if defined(__i386__)
-	leal 4(%esp), %eax /*LEA 指令即 Load Effective Address 的缩写。这条指令有效地址保存到 eax 寄存器  //sp*/ 
-	movl 4(%esp), %esp  /*4(%esp) 内正是指向 current 协程 coctx_t 的指针，这里把它塞到 esp 寄存器*/
+	/*LEA 指令即 Load Effective Address 的缩写。这条指令有效地址保存到 eax 寄存器  //sp*/ 
+	leal 4(%esp), %eax // eax = esp + 4
+	movl 4(%esp), %esp  // esp = *(esp+4) = &cur_ctx
 	leal 32(%esp), %esp //parm a : &regs[7] + sizeof(void*)  /*将 coctx_t 指针指向的地址加上 32 个字节的内存位置加载到 esp 中*/
 	/*最终：esp 寄存器实际上指向了当前协程 coctx_t 结构的 ss_size 成员位置，在它之下有个名为 regs 的数组，刚好是用来保存 8 个寄存器值的。*/
+	//regs[0] 存放下一个指令执行地址，也即返回地址。regs[7] 存放切换到新协程后，ESP指针调整的新地址，也就是栈上的偏移。
 	pushl %eax //esp ->parm a /*将 eax 寄存器保存到了 coctx_t->regs[7] 的位置,将当前协程栈顶保存起来，以备下次调度回来时恢复栈地址*/
-
+	
 	/*保存各通用寄存器的值，到 coctx_t 结构的 regs[1]~regs[6] 的位置。*/
-	pushl %ebp
-	pushl %esi
-	pushl %edi
-	pushl %edx
-	pushl %ecx
-	pushl %ebx
+	pushl %ebp	// cur_ctx->regs[EBX] = %ebp
+	pushl %esi	// cur_ctx->regs[ESI] = %esi 
+	pushl %edi	// cur_ctx->regs[EDI] = %edi
+	pushl %edx	// cur_ctx->regs[EDX] = %edx
+	pushl %ecx	// cur_ctx->regs[ECX] = %ecx
+	pushl %ebx	// cur_ctx->regs[EBX] = %ebx
 	pushl -4(%eax)/*将 coctx_swap 的返回地址给保存起来了，放在coctx_t->regs[0] 的位置*/
 
 	 /* 以MOVL 指令为界。第一部分是用于保存 current 协程的各个寄存器，第二部分则是恢复 pending 协程的寄存器。*/
 	movl 4(%eax), %esp //parm b -> &regs[0]   /*将栈指针切到 pending 协程的 coctx_t 结构体开始，即 regs[0] 的位置*/ 
 
-	popl %eax /*弹出 regs[0] 的值到 eax 寄存器,regs[0]保存的是coctx_swap的返回地址 //ret func addr*/
+	popl %eax   /*弹出 regs[0] 的值到 eax 寄存器,regs[0]保存的是coctx_swap的返回地址 //ret func addr
+				  %eax= pend_ctx->regs[EIP] = pfunc_t地址
+				*/
 	/*从 regs[1]~regs[6] 恢复各寄存器的值*/
-	popl %ebx  
-	popl %ecx
-	popl %edx
-	popl %edi
-	popl %esi
-	popl %ebp
-	popl %esp
-	pushl %eax //set ret func addr
+	popl %ebx	//%ebx = pend_ctx->regs[EBX]
+	popl %ecx	//%ecx = pend_ctx->regs[ECX]
+	popl %edx	//%edx = pend_ctx->regs[EDX]
+	popl %edi	//%edi = pend_ctx->regs[EDI]
+	popl %esi	//%esi = pend_ctx->regs[ESI]
+	popl %ebp	//%ebp = pend_ctx->regs[EBP]
+	popl %esp	/%ebp = pend_ctx->regs[ESP] 即 (char*) sp - sizeof(void*)
+	pushl %eax //set ret func addr, return address = %eax = pfunc_t地址
 
 	xorl %eax, %eax   //清零eax寄存器
-	ret   //执行返回指令
+	ret   // popl %eip 即跳转到pfunc_t地址执行
 
 #elif defined(__x86_64__)
-	leaq 8(%rsp),%rax
-	leaq 112(%rdi),%rsp
+	//leaq 用于把其第一个参数的值赋值给第二个寄存器参数。
+	leaq 8(%rsp),%rax   //把 8(%rsp) 表示的地址赋值给了 %rax。这一地址是父函数栈帧中除返回地址外栈帧顶的位置。
+	leaq 112(%rdi),%rsp  //%rdi 存放的是coctx_swap 第一个参数的值，这一参数是指向 coctx_t 类型的指针，表示当前要切出的协程.112(%rdi) 表示的就是第一个协程的 coctx_t 中 regs[14] 数组的下一个64位地址
 	pushq %rax
 	pushq %rbx
 	pushq %rcx

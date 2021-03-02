@@ -93,20 +93,29 @@ int coctx_init( coctx_t *ctx )
 	memset( ctx,0,sizeof(*ctx));
 	return 0;
 }
+/*
+功能：
+先给coctx_pfn_t函数预留2个参数的大小，并4位地址对齐
+将参数填入到预存的参数中
+regs[kEIP]中保存了pfn的地址，regs[kESP]中则保存了栈顶指针 - 4个字节的大小的地址。这预留的4个字节用于保存return address。
+*/
 int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 {
 	//make room for coctx_param
+	// 此时sp其实就是esp指向的地方 其中ss_size感觉像是这个栈上目前剩余的空间
+	//ctx->ss_sp 对应的空间是在堆上分配的，地址是从低到高的增长，而堆栈是往低地址方向增长的，
+	//所以要使用这一块人为改变的栈帧区域，首先地址要调到最高位，即ss_sp + ss_size的位置
 	char *sp = ctx->ss_sp + ctx->ss_size - sizeof(coctx_param_t);
-	sp = (char*)((unsigned long)sp & -16L);
+	sp = (char*)((unsigned long)sp & -16L);// 字节对齐，16L是一个magic number，GCC默认的堆对齐设置的就是16字节
 
-	
+	// param用来给我们预留下来的参数区设置值
 	coctx_param_t* param = (coctx_param_t*)sp ;
-	param->s1 = s;
-	param->s2 = s1;
+	param->s1 = s;//即将切换到的协程
+	param->s2 = s1;//切换出的协程
 
 	memset(ctx->regs, 0, sizeof(ctx->regs));
 
-	ctx->regs[ kESP ] = (char*)(sp) - sizeof(void*);
+	ctx->regs[ kESP ] = (char*)(sp) - sizeof(void*);//用于保存返回地址
 	ctx->regs[ kEIP ] = (char*)pfn;
 
 	return 0;

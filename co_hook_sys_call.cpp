@@ -330,18 +330,20 @@ int close(int fd)
 ssize_t read( int fd, void *buf, size_t nbyte )
 {
 	HOOK_SYS_FUNC( read );
-	
+	// 如果目前线程没有一个协程, 则直接执行系统调用
 	if( !co_is_enable_sys_hook() )
 	{
-		return g_sys_read_func( fd,buf,nbyte );
+		return g_sys_read_func( fd,buf,nbyte );// dlsym以后得到的原函数
 	}
-	rpchook_t *lp = get_by_fd( fd );
+	rpchook_t *lp = get_by_fd( fd );// 获取这个文件描述符的详细信息
 
-	if( !lp || ( O_NONBLOCK & lp->user_flag ) ) 
+	if( !lp || ( O_NONBLOCK & lp->user_flag ) ) // 套接字为非阻塞的,直接进行系统调用
 	{
 		ssize_t ret = g_sys_read_func( fd,buf,nbyte );
 		return ret;
 	}
+
+	// 套接字阻塞
 	int timeout = ( lp->read_timeout.tv_sec * 1000 ) 
 				+ ( lp->read_timeout.tv_usec / 1000 );
 
@@ -349,17 +351,18 @@ ssize_t read( int fd, void *buf, size_t nbyte )
 	pf.fd = fd;
 	pf.events = ( POLLIN | POLLERR | POLLHUP );
 
+	// 调用co_poll, co_poll中会切换协程, 协程被恢复时将会从co_poll中的挂起点继续运行
 	int pollret = poll( &pf,1,timeout );
 
-	ssize_t readret = g_sys_read_func( fd,(char*)buf ,nbyte );
+	ssize_t readret = g_sys_read_func( fd,(char*)buf ,nbyte );// 套接字准备就绪或者超时 执行hook前的系统调用
 
-	if( readret < 0 )
+	if( readret < 0 )//超时
 	{
 		co_log_err("CO_ERR: read fd %d ret %ld errno %d poll ret %d timeout %d",
 					fd,readret,errno,pollret,timeout);
 	}
 
-	return readret;
+	return readret;//成功读取
 	
 }
 ssize_t write( int fd, const void *buf, size_t nbyte )
@@ -573,12 +576,13 @@ ssize_t recv( int socket, void *buffer, size_t length, int flags )
 
 extern int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc);
 
+// 在hook以后的poll中应该执行协程的调度
 int poll(struct pollfd fds[], nfds_t nfds, int timeout)
 {
 
-	HOOK_SYS_FUNC( poll );
-
-	if( !co_is_enable_sys_hook() )
+	HOOK_SYS_FUNC( poll );//真正的poll函数指针
+	
+	if( !co_is_enable_sys_hook() )// 如果本线程不存在协程调用hook前的poll
 	{
 		return g_sys_poll_func( fds,nfds,timeout );
 	}
@@ -954,8 +958,11 @@ struct hostent *co_gethostbyname(const char *name)
 }
 #endif
 
-
-void co_enable_hook_sys() //�⺯������������,�����ļ��ᱻ���ԣ�����
+/*
+通过在用户代码中包含这个函数void co_enable_hook_sys() 
+可以把整个co_hook_sys_call.cpp中的符号表导入我们的项目中，这样也可以做到使用我们自己的库去替换系统的库。
+*/
+void co_enable_hook_sys() 
 {
 	stCoRoutine_t *co = GetCurrThreadCo();
 	if( co )
