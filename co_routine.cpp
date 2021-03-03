@@ -48,8 +48,8 @@ using namespace std;
 stCoRoutine_t *GetCurrCo( stCoRoutineEnv_t *env );
 struct stCoEpoll_t;
 
-// stCoRoutineEnv_t结构一个线程只有一个
-//线程可以通过该stCoRoutineEnv_t实例了解现在有哪些协程，哪个协程正在运行，以及下一个运行的协程是哪个
+// 该线程中第一个协程创建的时候进行初始化,每个线程中都只有一个stCoRoutineEnv_t实例
+//线程可以通过该stCoRoutineEnv_t实例了解现在有哪些协程，哪个协程正在运行，以及下一个运行的协程是哪个。
 struct stCoRoutineEnv_t
 {
 	/*
@@ -344,6 +344,7 @@ struct stCoEpoll_t
 };
 typedef void (*OnPreparePfn_t)( stTimeoutItem_t *,struct epoll_event &ev, stTimeoutItemLink_t *active );
 typedef void (*OnProcessPfn_t)( stTimeoutItem_t *);
+//
 struct stTimeoutItem_t
 {
 
@@ -389,6 +390,9 @@ struct stTimeout_t
 	unsigned long long ullStart;// 时间轮第一次使用的时间
 	long long llStartIdx;// 目前正在使用的下标
 };
+/*	申请了60*1000个timeoutLink链表
+	设置当前时间为起始时间
+	设置当前游标为0*/
 stTimeout_t *AllocTimeout( int iSize )
 {
 	stTimeout_t *lp = (stTimeout_t*)calloc( 1,sizeof(stTimeout_t) );	
@@ -876,6 +880,14 @@ void OnPollPreparePfn( stTimeoutItem_t * ap,struct epoll_event &e,stTimeoutItemL
 * @param ctx epoll管理器
 * @param pfn 每轮事件循环的最后会调用该函数
 * @param arg pfn的参数
+
+具体步骤如下：
+调用epoll_wait等待监听的事件
+将stTimeout_t中的timeout链表清空
+若epoll中有数据，则将对应的事件加入到stTimeout_t的active链表中；同时将timeout数组链表中删除本事件的超时事件
+遍历timout数组链表，将已经超时的事件加入到timeout链表中
+将timeout链表中的所有事件置为超时事件，需要后续特殊处理；同时将timeout链表合并到active链表
+遍历active链表，对超时事件且当前时间未超过超时时间的，重新将其加入到timeout数组链表中，这就解决了上面超时时间超过60s的问题；对其他的事件进行处理
 */
 void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 {
@@ -897,7 +909,7 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 
 		memset( timeout,0,sizeof(stTimeoutItemLink_t) );
 		
-		//处理就绪的⽂件描述符
+		//处理就绪的⽂件描述符，处理poll事件
 		for(int i=0;i<ret;i++)
 		{
 			stTimeoutItem_t *item = (stTimeoutItem_t*)result->events[i].data.ptr;// 获取在co_poll_inner放入epoll_event中的stTimeoutItem_t结构体
@@ -1011,6 +1023,10 @@ co_poll_inner函数主要有三个作用：
 1. 将poll的相关事件转换为epoll相关事件，并注册到当前线程的epoll中。
 2. 注册超时事件，到当前的epoll中
 3. 调用co_yield_ct, 让出该协程。
+添加监听事件的步骤：
+第一步，先将epoll结构转换成poll结构
+第二步，将poll结构加入到epoll的监听事件中
+第三步，添加timeout事件
 */
 int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeout, poll_pfn_t pollfunc)
 {	//poll_pfn_t pollfunc真正的函数
@@ -1049,7 +1065,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	// 在eventloop中调用的处理函数,功能是唤醒pArg中的协程,也就是这个调用poll的协程
 	arg.pfnProcess = OnPollProcessEvent;
 	//pfnProcess是定时器成员，OnPollProcessEvent函数指针，此函数作用是将ap中pArg保存的stCoRoutine_t*取出，赋予执行权。（回到本函数）
-	arg.pArg = GetCurrCo( co_get_curr_thread_env() );
+	arg.pArg = GetCurrCo( co_get_curr_thread_env() );//参数为当前Env指针
 	//上面两句使eventloop可以很容易定位并回到co_poll_inner继续执行。
 	
 	

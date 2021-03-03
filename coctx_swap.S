@@ -57,7 +57,7 @@ coctx_swap:
 	pushl %eax //esp ->parm a /*将 eax 寄存器保存到了 coctx_t->regs[7] 的位置,将当前协程栈顶保存起来，以备下次调度回来时恢复栈地址*/
 	
 	/*保存各通用寄存器的值，到 coctx_t 结构的 regs[1]~regs[6] 的位置。*/
-	pushl %ebp	// cur_ctx->regs[EBX] = %ebp
+	pushl %ebp	// cur_ctx->regs[EBP] = %ebp
 	pushl %esi	// cur_ctx->regs[ESI] = %esi 
 	pushl %edi	// cur_ctx->regs[EDI] = %edi
 	pushl %edx	// cur_ctx->regs[EDX] = %edx

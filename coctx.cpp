@@ -121,6 +121,7 @@ int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 	return 0;
 }
 #elif defined(__x86_64__)
+//协程上下文的初始化
 int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 {
 	char *sp = ctx->ss_sp + ctx->ss_size;

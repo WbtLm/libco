@@ -60,7 +60,7 @@ struct stCoRoutine_t
 	包括了当前运行协程、上次切换挂起的协程、嵌套调用的协程栈，和一个 epoll 的封装结构（TBD），
 	运行在同一个线程上的各协程是共享该结构的（一个线程共享的结构）
 	*/
-	stCoRoutineEnv_t *env;
+	stCoRoutineEnv_t *env;//协程运行的上下文
 	pfn_co_routine_t pfn;// 结构为一个函数指针，实际待执行的协程函数 
 	void *arg;//实际待执行的协程函数的参数
 	coctx_t ctx;//coctx_t类型的结构，用于协程切换时保存的CPU上下文的(context)，包括esp,ebp,eip和其他通用寄存器的值。
