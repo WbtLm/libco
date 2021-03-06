@@ -91,10 +91,10 @@ struct stCoRoutine_t
 	//save satck buffer while confilct on same stack_buffer;
 	// 当使用共享栈的时候需要用到的一些数据结构
 	char* stack_sp; //栈顶指针
-	unsigned int save_size;//栈内有效数据大小（len）
-	char* save_buffer;//指向用来临时存放栈内有效数据的地方的指针（share stack策略）
+	unsigned int save_size;//save_buffer中保存的数据大小
+	char* save_buffer;//共享栈的时候，此指针指向临时保存栈内有效数据的内存空间
 
-	stCoSpec_t aSpec[1024];
+	stCoSpec_t aSpec[1024];//协程私有数据
 
 };
 
