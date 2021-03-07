@@ -47,14 +47,15 @@
 
 typedef long long ll64_t;
 
+//还有一个很重要的作用就是在libco中套接字在hook后的fcntl中都设置为非阻塞,这里保存了套接字原有的阻塞属性
 struct rpchook_t
 {
-	int user_flag;
-	struct sockaddr_in dest; //maybe sockaddr_un;
-	int domain; //AF_LOCAL , AF_INET
+	int user_flag;// 记录套接字的状态
+	struct sockaddr_in dest; //maybe sockaddr_un;    // 套机字目标地址
+	int domain; //AF_LOCAL->域套接字 , AF_INET->IP	 // 套接字类型
 
-	struct timeval read_timeout;
-	struct timeval write_timeout;
+	struct timeval read_timeout;// 读超时时间
+	struct timeval write_timeout;// 写超时时间
 };
 static inline pid_t GetPid()
 {

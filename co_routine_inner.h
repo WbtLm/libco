@@ -16,13 +16,14 @@
 * limitations under the License.
 */
 
-
+//finish
 #ifndef __CO_ROUTINE_INNER_H__
 
 #include "co_routine.h"
 #include "coctx.h"
 struct stCoRoutineEnv_t;
-struct stCoSpec_t
+
+struct stCoSpec_t//协程私有数据
 {
 	void *value;
 };
@@ -35,11 +36,7 @@ struct stStackMem_t//栈
 	char* stack_buffer;//栈的起始地址,当然对于主协程来说这是堆上的空间
 
 };
-/*
-libco的实现并不高效，但是能跑，且避免了默认配置的情况。
-答案就是在进行协程切换的时候把已经使用的内存进行拷贝。
-这样一个线程所有的协程在运行时使用的确实是同一个栈，也就是我们所说的共享栈了
-*/
+
 // 共享栈中多栈可以使得我们在进程切换的时候减少拷贝次数
 struct stShareStack_t
 {
@@ -62,8 +59,8 @@ struct stCoRoutine_t
 	*/
 	stCoRoutineEnv_t *env;//协程运行的上下文
 	pfn_co_routine_t pfn;// 结构为一个函数指针，实际待执行的协程函数 
-	void *arg;//实际待执行的协程函数的参数
-	coctx_t ctx;//coctx_t类型的结构，用于协程切换时保存的CPU上下文的(context)，包括esp,ebp,eip和其他通用寄存器的值。
+	void *arg;//pfn的参数
+	coctx_t ctx;//用于协程切换时保存的CPU上下文的(context)，包括esp,ebp,eip和其他通用寄存器的值。
 	
 	//一些状态和标志变量
 	char cStart;// 协程是否执行过resume
@@ -75,7 +72,7 @@ struct stCoRoutine_t
 	void *pvEnv;//保存程序系统环境变量的指针，这个环境变量其实是与hook后的setenv，getenv类函数有关
 
 	//char sRunStack[ 1024 * 128 ];
-	//Libco是有栈协程
+	//Libco_有栈协程
 	//协程运行时的栈内存，固定大小128kb
 	stStackMem_t* stack_mem;	//bp保存在这儿
 
@@ -98,8 +95,6 @@ struct stCoRoutine_t
 
 };
 
-
-
 //1.env
 void 				co_init_curr_thread_env();
 stCoRoutineEnv_t *	co_get_curr_thread_env();
@@ -109,9 +104,6 @@ void    co_free( stCoRoutine_t * co );
 void    co_yield_env(  stCoRoutineEnv_t *env );
 
 //3.func
-
-
-
 //-----------------------------------------------------------------------------------------------
 
 struct stTimeout_t;

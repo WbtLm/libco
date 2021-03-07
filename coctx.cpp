@@ -16,6 +16,7 @@
 * limitations under the License.
 */
 
+//finish
 #include "coctx.h"
 #include <string.h>
 
@@ -87,17 +88,20 @@ extern "C"
 {
 	extern void coctx_swap( coctx_t *,coctx_t* ) asm("coctx_swap");
 };
-#if defined(__i386__)
-int coctx_init( coctx_t *ctx )
+
+#if defined(__i386__)//i386是32位微处理器的统称
+int coctx_init( coctx_t *ctx )   // 将整个结构体初始化0
 {
 	memset( ctx,0,sizeof(*ctx));
 	return 0;
 }
+
 /*
+typedef void* (*coctx_pfn_t)( void* s, void* s2 );
 功能：
-先给coctx_pfn_t函数预留2个参数的大小，并4位地址对齐
-将参数填入到预存的参数中
-regs[kEIP]中保存了pfn的地址，regs[kESP]中则保存了栈顶指针 - 4个字节的大小的地址。这预留的4个字节用于保存return address。
+先给coctx_pfn_t函数预留2个参数的大小，并4位地址对齐，将参数填入到预存的参数中
+regs[kEIP]中保存了pfn的地址，regs[kESP]中则保存了栈顶指针 - 4个字节的大小的地址。
+这预留的4个字节用于保存return address。
 */
 int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 {
@@ -120,7 +124,8 @@ int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 
 	return 0;
 }
-#elif defined(__x86_64__)
+#elif defined(__x86_64__)//64位机
+
 //协程上下文的初始化
 int coctx_make( coctx_t *ctx,coctx_pfn_t pfn,const void *s,const void *s1 )
 {

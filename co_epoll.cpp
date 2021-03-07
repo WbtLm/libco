@@ -24,19 +24,43 @@
 
 #if !defined( __APPLE__ ) && !defined( __FreeBSD__ )
 
+/*
+int epoll_wait(int epfd,struct epoll_event * events,int maxevents,int timeout) 
+功能：该函数用于轮询I/O事件的发生
+参数： 
+epfd:由epoll_create 生成的epoll专用的文件描述符； 
+epoll_event:用于回传代处理事件的数组； 
+maxevents:每次能处理的事件数； 
+timeout:等待I/O事件发生的超时值，-1相当于阻塞，0相当于非阻塞。
+*/
 int	co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeout )
 {
 	return epoll_wait( epfd,events->events,maxevents,timeout );
 }
+/*
+int epoll_ctl(int epfd, int op, int fd, struct epoll_event *ev) 
+功能：该函数用于控制某个epoll文件描述符上的事件，可以注册事件，修改事件，删除事件。 
+参数： 
+epfd：由 epoll_create 生成的epoll专用的文件描述符； 
+op：要进行的操作例如注册事件，可能的取值EPOLL_CTL_ADD 注册、EPOLL_CTL_MOD 修 改、EPOLL_CTL_DEL 删除 
+fd：关联的文件描述符； 
+ev：指向epoll_event的指针，如果调用成功返回0,不成功返回-1 
+*/
 int	co_epoll_ctl( int epfd,int op,int fd,struct epoll_event * ev )
 {
 	return epoll_ctl( epfd,op,fd,ev );
 }
+/*
+int epoll_create(int size) 
+功能：生成一个epoll专用的文件描述符，它其实是在内核申请一空间，用来存放你想关注的socket fd上是否发生以及发生了什么事件。
+参数：size就是你在这个epoll fd上能关注的最大socket fd数。
+*/
 int	co_epoll_create( int size )
 {
 	return epoll_create( size );
 }
 
+//给epoll结果集申请空间
 struct co_epoll_res *co_epoll_res_alloc( int n )
 {
 	struct co_epoll_res * ptr = 
@@ -48,6 +72,8 @@ struct co_epoll_res *co_epoll_res_alloc( int n )
 	return ptr;
 
 }
+
+//释放epoll结果集的空间
 void co_epoll_res_free( struct co_epoll_res * ptr )
 {
 	if( !ptr ) return;
@@ -64,13 +90,13 @@ private:
 
 	void **m_pp[ 1024 ];
 public:
-	clsFdMap()
+	clsFdMap()//构造函数
 	{
-		memset( m_pp,0,sizeof(m_pp) );
+		memset( m_pp,0,sizeof(m_pp) );//清零m_pp数组
 	}
-	~clsFdMap()
+	~clsFdMap()//析构函数
 	{
-		for(int i=0;i<sizeof(m_pp)/sizeof(m_pp[0]);i++)
+		for(int i=0;i<sizeof(m_pp)/sizeof(m_pp[0]);i++)//释放内存空间
 		{
 			if( m_pp[i] ) 
 			{
@@ -132,8 +158,33 @@ struct kevent_pair_t
 };
 int co_epoll_create( int size )
 {
-	return kqueue();
+	return kqueue();// 返回kqueue句柄
 }
+
+/*
+kqueue有三个主要的东西：struct kevent结构体，EV_SET宏以及kevent函数。
+
+1、struct kevent结构体是用于调度的事件
+struct kevent {
+    uintptr_t ident;// 该事件关联的文件描述符，如socket中的fd句柄
+    int16_t filter;  //可以指定监听类型 , 如EVFILT_READ=读，EVFILT_WRITE=写，EVFILT_TIMER=定时器事件，EVFILT_SIGNAL=信号，EVFILT_USER=用户自定义事件
+    uint16_t        flags;//操作方式,EV_ADD 添加，EV_DELETE 删除，EV_ENABLE 激活，EV_DISABLE 不激活
+    uint32_t        fflags; //第二种操作方式
+    intptr_t        data;   //int 型的用户数据，socket 里面它是可读写的数据长度 
+    void            *udata; //指针类型的数据，你可以携带任何想携带的附加数据。比如对象 
+};
+
+2、EV_SET 是用于初始化kevent结构的便利宏
+EV_SET(&kev, ident, filter, flags, fflags, data, udata);
+
+3、kevent函数
+int kevent(int kq, 					 // kqueue的句柄
+    const struct kevent *changelist, // 是 kevent 的数组，就是一次可以添加多个事件
+    int nchanges, // 是 changelist 数组长度
+    struct kevent *eventlist, // 是待接收事件的数组，里面是空的，准备给 kqueue 放数据的
+    int nevents, // 是 eventlist 数组长度，传了 eventlist参数后，kevent() 将会阻塞等待事件发生才返回，返回的全部事件在 eventlist 数组里面。
+    const struct timespec *timeout); // 是阻塞超时时间，超过这个时间就不阻塞了，直接返回
+*/
 int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeout )
 {
 	struct timespec t = { 0 };
@@ -141,6 +192,7 @@ int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeou
 	{
 		t.tv_sec = timeout;
 	}
+	//监听事件的发生
 	int ret = kevent( epfd, 
 					NULL, 0, //register null
 					events->eventlist, maxevents,//just retrival

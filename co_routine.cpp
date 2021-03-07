@@ -16,6 +16,7 @@
 * limitations under the License.
 */
 
+//finish
 #include "co_routine.h"
 #include "co_routine_inner.h"
 #include "co_epoll.h"
@@ -959,6 +960,7 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 	for(;;)
 	{
 		// 最大超时时间设置为 1 ms,所以最长1ms，epoll_wait就会被唤醒
+		//ret=就绪epoll事件的个数
 		int ret = co_epoll_wait( ctx->iEpollFd,result,stCoEpoll_t::_EPOLL_SIZE, 1 );//调用 epoll_wait() 等待 I/O 就绪事件，为了配合时间轮⼯作，这里的 timeout设置为 1 毫秒。
 
 		// 不使用局部变量的原因是epoll循环并不是元素的唯一来源.例如条件变量相关(co_routine.cpp stCoCondItem_t)
@@ -970,10 +972,11 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 		//处理就绪的⽂件描述符，处理poll事件
 		for(int i=0;i<ret;i++)
 		{
-			stTimeoutItem_t *item = (stTimeoutItem_t*)result->events[i].data.ptr;// 获取在co_poll_inner放入epoll_event中的stTimeoutItem_t结构体
+			stTimeoutItem_t *item = (stTimeoutItem_t*)result->events[i].data.ptr; // 获取在co_poll_inner放入epoll_event中的stTimeoutItem_t结构体
 			if( item->pfnPrepare ) // 如果用户设置预处理回调
-			{
-				item->pfnPrepare( item,result->events[i],active );//调用pfnPrepare 做预处理,实际上，pfnPrepare() 预处理函数内部也会将就绪 item 加⼊ active 队列
+			{	
+				//调用pfnPrepare 做预处理,实际上，pfnPrepare() 预处理函数内部也会将就绪 item 加⼊ active 队列
+				item->pfnPrepare( item,result->events[i],active );
 			}
 			else
 			{
@@ -982,14 +985,14 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 		}
 
 		unsigned long long now = GetTickMS();//获取当前绝对时间，与时间轮起始时间的时间差作为一个滴答时间
-		TakeAllTimeout( ctx->pTimeout,now,timeout );// 以当前时间为超时截止点, 从时间轮中取出超时的时间放入到timeout中
+		TakeAllTimeout( ctx->pTimeout,now,timeout );// 以当前时间为超时截止点, 从时间轮中取出超时的事件放入到timeout中
 		
-		//遍历 active 队列，调用⼯作协程设置的 pfnProcess() 回调函数 resume挂起的⼯作协程，处理对应的 I/O 或超时事件。这就是主协程的事件循环工作过程
+		// 遍历超时链表
 		stTimeoutItem_t *lp = timeout->head;
-		while( lp ) // 遍历超时链表,设置超时标志,并加入active链表
+		while( lp ) 
 		{
 			//printf("raise timeout %p\n",lp);
-			lp->bTimeout = true;
+			lp->bTimeout = true;//从时间轮上取下的话置为true
 			lp = lp->pNext;
 		}
 
@@ -1001,9 +1004,9 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 		{
 			// 在链表不为空的时候删除active的第一个元素 如果删除成功,那个元素就是lp
 			PopHead<stTimeoutItem_t,stTimeoutItemLink_t>( active );//将一个active事件取下来
-            if (lp->bTimeout && now < lp->ullExpireTime) 
-			{// 一种排错机制,在超时和所等待的时间内已经完成只有一个条件满足才是正确的
-				int ret = AddTimeout(ctx->pTimeout, lp, now);
+            if (lp->bTimeout && now < lp->ullExpireTime) //从时间轮上取下来并且没有超时
+			{
+				int ret = AddTimeout(ctx->pTimeout, lp, now);//重新加入时间轮
 				if (!ret) //ret==0表示AddTimeout成功（时间超过最大超时时间也会返回0）。
 				{
 					lp->bTimeout = false;//重置计时器为未超时。
@@ -1011,7 +1014,7 @@ void co_eventloop( stCoEpoll_t *ctx,pfn_co_eventloop_t pfn,void *arg )
 					continue;
 				}
 			}
-			if( lp->pfnProcess )//若存在就执行一下这个函数
+			if( lp->pfnProcess )//若存在pfnProcess就执行一下
 			{
 				//此函数会使eventloop放弃执行权，转到co_poll_inner继续执行。
 				//poll_inner上交执行权之后会从这继续执行，完成收尾工作，lp会被从链表中摘下销毁。
@@ -1105,6 +1108,12 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	stCoRoutine_t* self = co_self();// 获取当前线程正在运行的协程
 
 	//1.struct change
+	/*
+	对于每一个 fd，为其申请一个 stPollItem_t 来管理对应 Epoll 事件以及记录回调参数。
+	libco 在此做了一个小的优化，对于长度小于 2 的 fds 数组，直接在栈上定义相应的 stPollItem_t 数组，否则从堆中申请内存
+	函数指针 OnPollProcessEvent 封装了协程的切换过程。
+	当传入指定的 stPollItem_t 结构时，即可唤醒对应于该结构的 coroutine，将控制权交由其执行；
+	*/
 	stPoll_t& arg = *((stPoll_t*)malloc(sizeof(stPoll_t)));	//stPoll_t结构体
 	//以下代码为stPoll_t结构体初始化。
 	memset( &arg,0,sizeof(arg) );
@@ -1132,6 +1141,10 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	
 	
 	//2. add epoll
+	/*
+	就是将 fd 数组全部加入到 Epoll 中进行监听。协程会将每一个 epoll_event 的 data.ptr 域设置为对应的 stPollItem_t 结构。
+	这样当事件触发时，可以直接从对应的 ptr 中取出 stPollItem_t 结构，然后唤醒指定协程。
+	*/
 	for(nfds_t i=0;i<nfds;i++)//epoll的处理
 	{
 		arg.pPollItems[i].pSelf = arg.fds + i;//取第i个struct pollfd，就是pSelf
@@ -1163,7 +1176,11 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	}
 
 	//3.add timeout
-
+	/*
+	如果本次操作提供了 Timeout 参数，co_poll 还会将协程本次操作对应的 stPoll_t 加入到定时器队列中。
+	这表明在 Timeout 定时触发之后，也会唤醒协程的执行。
+	当整个上半段都完成后，co_poll 立即调用 co_yield_env 让出 CPU，执行流程跳转回到 main 协程中。
+	*/
 	unsigned long long now = GetTickMS();//获取当前时间
 	arg.ullExpireTime = now + timeout;//设置超时时间点。
 	int ret = AddTimeout( ctx->pTimeout,&arg,now );//往时间轮中加计时器
@@ -1212,7 +1229,13 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 
 	return iRaiseCnt;// 返回此次就绪或者超时的事件
 }
-//懒惰
+/*co_poll 实际是对函数 co_poll_inner 的封装。
+  功能：将 fd 交由 Epoll 管理，待 Epoll 的相应的事件触发时，再切换回来执行 read 或者 write 操作，从而实现由 Epoll 管理协程的功能。
+  stCoEpoll_t 是为 libco 定制的 Epoll 相关数据结构；
+  fds 是 pollfd 结构的文件句柄；
+  nfds 为 fds 数组的长度；
+  timeout_ms表示定时器时间，也就是在 timeout 毫秒之后触发处理这些文件句柄
+*/
 int	co_poll( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeout_ms )
 {
 	return co_poll_inner(ctx, fds, nfds, timeout_ms, NULL);
@@ -1222,6 +1245,8 @@ void SetEpoll( stCoRoutineEnv_t *env,stCoEpoll_t *ev )
 {
 	env->pEpoll = ev;
 }
+
+//co_get_epoll_ct()用于查找返回当初在线程级初始化中，创建stCoRoutineEnv_t的时候所创建的stCoEpoll_t类型pEpoll指针。
 stCoEpoll_t *co_get_epoll_ct()
 {
 	if( !co_get_curr_thread_env() )
@@ -1240,26 +1265,43 @@ struct stHookPThreadSpec_t
 		size = 1024
 	};
 };
+
+/*
+协程局部存储涉及到的接口有：co_setspecific、co_getspecific。
+对于非协程执行环境或者主协程环境，直接调用pthread库的pthread_setspecific、pthread_getspecific的线程局部存储接口
+而如果是在一般工作协程的环境，每个协程预留分配了1024个指针用于存储这些value的地址。
+*/
+/*
+co_getspecific()
+key：需要获取数据的键
+*/
 void *co_getspecific(pthread_key_t key)
 {
 	stCoRoutine_t *co = GetCurrThreadCo();
 	if( !co || co->cIsMain )
 	{
-		return pthread_getspecific( key );
+		return pthread_getspecific( key );//pthread_getspecific功能：获取调用线程的键绑定，并将该绑定存储在value指向的位置中
 	}
 	return co->aSpec[ key ].value;
 }
+/*
+co_setspecific()
+参数：
+key：需要关联的键
+value：指向需要关联的数据
+*/
 int co_setspecific(pthread_key_t key, const void *value)
 {
 	stCoRoutine_t *co = GetCurrThreadCo();
 	if( !co || co->cIsMain )
 	{
-		return pthread_setspecific( key,value );
+		return pthread_setspecific( key,value );//pthread_setspecific: 可以为指定线程特定数据键设置线程特定绑定,成功返回0
 	}
 	co->aSpec[ key ].value = (void*)value;
 	return 0;
 }
 
+//禁用hook系统函数
 void co_disable_hook_sys()
 {
 	stCoRoutine_t *co = GetCurrThreadCo();
@@ -1268,6 +1310,7 @@ void co_disable_hook_sys()
 		co->cEnableSysHook = 0;
 	}
 }
+//判断是否可以hook系统函数
 bool co_is_enable_sys_hook()
 {
 	// co_enable_sys_hook 会把cEnableSysHook设置成1
@@ -1280,17 +1323,17 @@ stCoRoutine_t *co_self()
 	return GetCurrThreadCo();
 }
 
-//co cond
+//co cond条件
 struct stCoCond_t;
-struct stCoCondItem_t 
+struct stCoCondItem_t //stCoCond_t对象管理所有的条件事件
 {
 	stCoCondItem_t *pPrev;
 	stCoCondItem_t *pNext;
 	stCoCond_t *pLink;// 所属链表
 
-	stTimeoutItem_t timeout;//在poll中时一个stTimeoutItem_t代表一个poll事件
+	stTimeoutItem_t timeout;//定时器事件，在poll中时一个stTimeoutItem_t代表一个poll事件
 };
-struct stCoCond_t// 条件变量的实体
+struct stCoCond_t// 条件变量
 {
 	stCoCondItem_t *head;
 	stCoCondItem_t *tail;
@@ -1301,11 +1344,17 @@ static void OnSignalProcessEvent( stTimeoutItem_t * ap )
 	co_resume( co );
 }
 
+//查看链表是否有元素，有的话从链表中删除，然后加入到epoll的active链表
+
+//如果不主动调用co_cond_signal/co_cond_broadcast，则会因为时间到期由co_eventloop主动调度。
+
+//在下一次epoll_wait中遍历active时会触发回调，然后CPU执行权切换到执行co_cond_timedwait的地方
 stCoCondItem_t *co_cond_pop( stCoCond_t *link );
-//查看链表是否有元素，有的话从链表中删除，然后加入到epoll的active链表，在下一次epoll_wait中遍历active时会触发回调，然后CPU执行权切换到执行co_cond_timedwait的地方
+
+// 通知一个协程条件达成
 int co_cond_signal( stCoCond_t *si )
 {
-	stCoCondItem_t * sp = co_cond_pop( si );
+	stCoCondItem_t * sp = co_cond_pop( si );//从stCoCond_t链表取出一个stCoCondItem_t。
 	if( !sp ) 
 	{
 		return 0;
@@ -1316,6 +1365,8 @@ int co_cond_signal( stCoCond_t *si )
 	// 所以单线程运行生产者消费者我们在signal以后还需要调用阻塞类函数转移CPU控制权,例如poll
 	return 0;
 }
+
+// 通知所有等待的协程条件达成
 int co_cond_broadcast( stCoCond_t *si )
 {
 	for(;;)
@@ -1331,23 +1382,21 @@ int co_cond_broadcast( stCoCond_t *si )
 	return 0;
 }
 
-// 条件变量的实体;超时时间
-//将当前协程数据添加到同步事件单向链接中；
+// 条件变量的实体超时时间
+// 等待条件达成，timeout_ms就等待的时间，-1表示无限等待,将当前协程数据添加到同步事件单向链接中
 int co_cond_timedwait( stCoCond_t *link,int ms )
 {
-	stCoCondItem_t* psi = (stCoCondItem_t*)calloc(1, sizeof(stCoCondItem_t));
+	stCoCondItem_t* psi = (stCoCondItem_t*)calloc(1, sizeof(stCoCondItem_t));//创建一个stCoCondItem_t，这个结构里面包含一个定时器事件(stTimeoutItem_t)
+	//设置定时器事件关联的协程,以及事件处理函数(OnSignalProcessEvent)
 	psi->timeout.pArg = GetCurrThreadCo();
-	// 实际还是执行resume,进行协程切换
 	psi->timeout.pfnProcess = OnSignalProcessEvent;
 
-	if( ms > 0 )
+	if( ms > 0 )//如果不是无限等待
 	{
 		unsigned long long now = GetTickMS();
-		// 定义超时时间
-		psi->timeout.ullExpireTime = now + ms;
+		psi->timeout.ullExpireTime = now + ms;// 定义超时时间
 
-		// 加入时间轮
-		int ret = AddTimeout( co_get_curr_thread_env()->pEpoll->pTimeout,&psi->timeout,now );
+		int ret = AddTimeout( co_get_curr_thread_env()->pEpoll->pTimeout,&psi->timeout,now );// 加入时间轮
 		if( ret != 0 )
 		{
 			free(psi);
@@ -1355,7 +1404,7 @@ int co_cond_timedwait( stCoCond_t *link,int ms )
 		}
 	}
 	// 相当于timeout为负的话超时时间无限，此时条件变量中有一个事件在等待，也就是一个协程待唤醒
-	AddTail( link, psi);
+	AddTail( link, psi);//把stCoCondItem_t加到stCoCond_t链表。
 
 	co_yield_ct();// 切换CPU执行权,在epoll中触发peocess回调以后回到这里
 
@@ -1365,10 +1414,14 @@ int co_cond_timedwait( stCoCond_t *link,int ms )
 
 	return 0;
 }
+
+// 创建一个条件变量
 stCoCond_t *co_cond_alloc()
 {
 	return (stCoCond_t*)calloc( 1,sizeof(stCoCond_t) );
 }
+
+// 释放条件变量
 int co_cond_free( stCoCond_t * cc )
 {
 	free( cc );

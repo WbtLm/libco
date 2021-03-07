@@ -16,6 +16,7 @@
 * limitations under the License.
 */
 
+//finish
 #ifndef __CO_ROUTINE_H__
 #define __CO_ROUTINE_H__
 
@@ -40,6 +41,7 @@ struct stCoRoutineAttr_t
 }__attribute__ ((packed));
 
 struct stCoEpoll_t;
+//函数指针类型pfn_co_eventloop_t，pfn_co_routine_t
 typedef int (*pfn_co_eventloop_t)(void *);
 typedef void *(*pfn_co_routine_t)( void * );
 
