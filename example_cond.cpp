@@ -82,7 +82,7 @@ int main()
 	env->cond = co_cond_alloc();
 
 	stCoRoutine_t* consumer_routine;//一个协程的结构
-	// 协程的创建函数于pthread_create很相似
+	// 协程的创建函数与pthread_create很相似
 	//1.指向线程表示符的指针,设置线程的属性(栈大小和指向共享栈的指针,使用共享栈模式),线程运行函数的其实地址,运行时函数的参数
 	co_create(&consumer_routine, NULL, Consumer, env);// 创建一个协程
 	// 协程在创建以后并没有运行 使用resume运行

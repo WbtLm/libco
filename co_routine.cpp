@@ -16,7 +16,7 @@
 * limitations under the License.
 */
 
-//finish
+
 #include "co_routine.h"
 #include "co_routine_inner.h"
 #include "co_epoll.h"
@@ -1100,11 +1100,11 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	{
 		return pollfunc(fds, nfds, timeout);
 	}
-	if (timeout < 0)//超时时间小于0，可以看做无限阻塞吧
+	if (timeout < 0)//超时时间小于0，可以看做无限阻塞,永远不会到达
 	{
 		timeout = INT_MAX;
 	}
-	int epfd = ctx->iEpollFd;	//epoll池子
+	int epfd = ctx->iEpollFd;	//epoll池子的fd
 	stCoRoutine_t* self = co_self();// 获取当前线程正在运行的协程
 
 	//1.struct change
@@ -1122,7 +1122,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 	arg.nfds = nfds;
 
 	stPollItem_t arr[2]; //临时内存池，不一定会使用到它，（取栈内存比向os申请快得多）。
-	if( nfds < sizeof(arr) / sizeof(arr[0]) && !self->cIsShareStack) // 如果poll中监听的描述符只有1个或者0个， 并且目前的不是共享栈模型
+	if( nfds < sizeof(arr) / sizeof(arr[0]) && !self->cIsShareStack) // 如果poll中监听的描述符只有1个或者2个， 并且目前的不是共享栈模型
 	{//第一个条件判断了一下数组开的是不是够大，第二个条件检查share Stack的许可。
 		arg.pPollItems = arr;//若够大且允许，就使用数组。
 	}	
@@ -1155,13 +1155,14 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 
 		if( fds[i].fd > -1 )//fd有效
 		{
+			// arg.pPollItems + i == &arg.pPollItems[i]
 			ev.data.ptr = arg.pPollItems + i;
 			ev.events = PollEvent2Epoll( fds[i].events );//co_poll用的事件类型转为epoll用的类型。
 
 			// 把事件加入poll中的事件进行封装以后加入epoll
 			int ret = co_epoll_ctl( epfd,EPOLL_CTL_ADD, fds[i].fd, &ev );
 			if (ret < 0 && errno == EPERM && nfds == 1 && pollfunc != NULL)
-			{// 把事件加入poll中的事件进行封装以后加入epoll
+			{   // 把事件加入poll中的事件进行封装以后加入epoll
 				if( arg.pPollItems != arr )
 				{
 					free( arg.pPollItems );
@@ -1215,7 +1216,7 @@ int co_poll_inner( stCoEpoll_t *ctx,struct pollfd fds[], nfds_t nfds, int timeou
 			}//del
 			fds[i].revents = arg.fds[i].revents;
 		}
-
+		
 		//释放内存
 		if( arg.pPollItems != arr )
 		{

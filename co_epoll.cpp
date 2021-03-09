@@ -26,7 +26,7 @@
 
 /*
 int epoll_wait(int epfd,struct epoll_event * events,int maxevents,int timeout) 
-功能：该函数用于轮询I/O事件的发生
+功能：该函数用于轮询I/O事件的发生，成功返回发生的事件数，失败返回-1.
 参数： 
 epfd:由epoll_create 生成的epoll专用的文件描述符； 
 epoll_event:用于回传代处理事件的数组； 
@@ -158,7 +158,7 @@ struct kevent_pair_t
 };
 int co_epoll_create( int size )
 {
-	return kqueue();// 返回kqueue句柄
+	return kqueue();// 返回kqueue对象
 }
 
 /*
@@ -192,7 +192,7 @@ int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeou
 	{
 		t.tv_sec = timeout;
 	}
-	//监听事件的发生
+	// 已经就绪的文件描述符数量
 	int ret = kevent( epfd, 
 					NULL, 0, //register null
 					events->eventlist, maxevents,//just retrival
@@ -200,8 +200,9 @@ int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeou
 	int j = 0;
 	for(int i=0;i<ret;i++)
 	{
-		struct kevent &kev = events->eventlist[i];
-		struct kevent_pair_t *ptr = (struct kevent_pair_t*)kev.udata;
+		struct kevent &kev = events->eventlist[i];//一个个取出已经就绪的事件
+		struct kevent_pair_t *ptr = (struct kevent_pair_t*)kev.udata;  //从附加数据里面取回文件描述符的值
+
 		struct epoll_event *ev = events->events + i;
 		if( 0 == ptr->fire_idx )
 		{
@@ -213,7 +214,7 @@ int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeou
 		{
 			ev = events->events + ptr->fire_idx - 1;
 		}
-		if( EVFILT_READ == kev.filter )
+		if( EVFILT_READ == kev.filter )//filter---可以指定监听类型 
 		{
 			ev->events |= EPOLLIN;
 		}
@@ -231,7 +232,6 @@ int co_epoll_wait( int epfd,struct co_epoll_res *events,int maxevents,int timeou
 }
 int co_epoll_del( int epfd,int fd )
 {
-
 	struct timespec t = { 0 };
 	struct kevent_pair_t *ptr = ( struct kevent_pair_t* )get_fd_map()->get( fd );
 	if( !ptr ) return 0;
@@ -255,6 +255,7 @@ int co_epoll_del( int epfd,int fd )
 	free( ptr );
 	return 0;
 }
+
 int co_epoll_ctl( int epfd,int op,int fd,struct epoll_event * ev )
 {
 	if( EPOLL_CTL_DEL == op )

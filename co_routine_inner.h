@@ -16,7 +16,7 @@
 * limitations under the License.
 */
 
-//finish
+
 #ifndef __CO_ROUTINE_INNER_H__
 
 #include "co_routine.h"

@@ -41,9 +41,13 @@ int main()
 	return 0;
 }
 */
+
 extern int 	co_setspecific( pthread_key_t key, const void *value );
 extern void *	co_getspecific( pthread_key_t key );
 
+/*
+ #define后面的"\"是续行符,表示下面一行是紧接着当前行的,一般用于将十分长的代码语句分几段写(语句本身要求必须是一行)
+*/
 #define CO_ROUTINE_SPECIFIC( name,y ) \
 \
 static pthread_once_t _routine_once_##name = PTHREAD_ONCE_INIT; \

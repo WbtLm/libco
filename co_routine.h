@@ -16,7 +16,7 @@
 * limitations under the License.
 */
 
-//finish
+
 #ifndef __CO_ROUTINE_H__
 #define __CO_ROUTINE_H__
 
