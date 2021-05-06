@@ -314,6 +314,7 @@ static inline void free_by_fd( int fd )
 */
 int socket(int domain, int type, int protocol)
 {
+	printf("hook\n");
 	HOOK_SYS_FUNC( socket );
 
 	if( !co_is_enable_sys_hook() )
